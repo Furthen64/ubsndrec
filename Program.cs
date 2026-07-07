@@ -22,12 +22,11 @@ internal static class CliApplication
                 return 0;
             }
 
-            EnsureCommandExists("pw-record", "pw-record not found. Install pipewire.");
             EnsureCommandExists("pw-link", "pw-link not found. Install pipewire.");
 
-            if (!CommandExists("wpctl") && !CommandExists("pw-cli"))
+            if (options.Mode is CliMode.Record or CliMode.Wizard)
             {
-                throw new CliException("Neither wpctl nor pw-cli found. Install wireplumber or pipewire-utils for sink detection.");
+                EnsureCommandExists("pw-record", "pw-record not found. Install pipewire.");
             }
 
             return options.Mode switch
@@ -409,11 +408,7 @@ internal static class CliApplication
     private static async Task LinkAsync(string source, string target)
     {
         Console.WriteLine($"Linking {source} -> {target}");
-        var exitCode = await RunProcessAsync("pw-link", source, target);
-        if (exitCode != 0)
-        {
-            throw new CliException($"Failed to link {source} -> {target}. Check the sink name with 'dotnet run -- list-sinks'.");
-        }
+        await RunProcessForOutputAsync("pw-link", source, target);
     }
 
     private static async Task<string> DetectDefaultSinkAsync()
@@ -483,7 +478,8 @@ internal static class CliApplication
                 break;
             }
 
-            var match = Regex.Match(trimmed, @"^(?<default>\*)?\s*(?<id>\d+)\.");
+            var normalized = Regex.Replace(trimmed, @"^[^\d\*]+", string.Empty);
+            var match = Regex.Match(normalized, @"^(?<default>\*)?\s*(?<id>\d+)\.");
             if (!match.Success)
             {
                 continue;

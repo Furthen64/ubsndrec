@@ -6,7 +6,7 @@ PipeWire speaker capture as a .NET 10 CLI.
 
 - .NET 10 SDK
 - PipeWire tools: `pw-record` and `pw-link`
-- `wpctl` from WirePlumber for richer sink detection, or `pw-cli` as a fallback
+- `wpctl` from WirePlumber for richer default-sink detection (optional, but recommended)
 
 ## Modes
 
