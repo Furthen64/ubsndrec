@@ -555,7 +555,21 @@ internal static class CliApplication
             return;
         }
 
-        await RunProcessAsync("kill", "-INT", recorder.Id.ToString());
+        if (OperatingSystem.IsLinux())
+        {
+            var killCommand = File.Exists("/bin/kill") ? "/bin/kill"
+                : File.Exists("/usr/bin/kill") ? "/usr/bin/kill"
+                : null;
+
+            if (!string.IsNullOrWhiteSpace(killCommand))
+            {
+                await RunProcessAsync(killCommand, "-INT", recorder.Id.ToString());
+                await recorder.WaitForExitAsync();
+                return;
+            }
+        }
+
+        recorder.Kill(entireProcessTree: false);
         await recorder.WaitForExitAsync();
     }
 
