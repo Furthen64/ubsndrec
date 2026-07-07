@@ -16,6 +16,16 @@
 
 set -euo pipefail
 
+# Requires bash 4.3+ (the -1 argument to printf '%(%Y%m%d_%H%M%S)T', which
+# means "use the current system time", was introduced in bash 4.3).
+# Most modern Linux distributions (Ubuntu 20.04+, Fedora 32+, etc.) ship
+# bash 5.x, so this requirement is satisfied in typical PipeWire environments.
+
+# ── configuration ────────────────────────────────────────────────────────────
+
+# Number of 0.25 s polling intervals to wait for recorder ports (5 s total).
+POLL_ATTEMPTS=20
+
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -31,7 +41,9 @@ fi
 
 # ── output filename ──────────────────────────────────────────────────────────
 
-OUTPUT="${1:-speaker_capture_$(date +%Y%m%d_%H%M%S).wav}"
+printf -v ts '%(%Y%m%d_%H%M%S)T' -1
+OUTPUT="${1:-speaker_capture_${ts}.wav}"
+unset ts
 
 # ── sink detection ───────────────────────────────────────────────────────────
 
@@ -41,7 +53,7 @@ detect_sink_wpctl() {
     local id name
     id=$(wpctl status 2>/dev/null \
         | awk '/Sinks:/,/^$/' \
-        | grep '^\s*\*' \
+        | grep '^[[:space:]]*\*' \
         | awk '{print $2}' \
         | tr -d '.')
     [ -z "$id" ] && return 1
@@ -53,8 +65,8 @@ detect_sink_wpctl() {
 }
 
 detect_sink_pwcli() {
-    # pw-cli info finds the node whose media.class is Audio/Sink and is default
-    # Fallback: pick the first Audio/Sink node name from pw-link -o
+    # Fallback: pick the first sink node name from pw-link -o by looking for
+    # a port named <node>:monitor_FL (present on all Audio/Sink nodes).
     pw-link -o 2>/dev/null \
         | grep ':monitor_FL$' \
         | head -1 \
@@ -105,7 +117,7 @@ cleanup() {
     echo ""
     echo "Stopping recorder..."
     if [ -n "$PW_RECORD_PID" ] && kill -0 "$PW_RECORD_PID" 2>/dev/null; then
-        kill "$PW_RECORD_PID"
+        kill -INT "$PW_RECORD_PID"
         wait "$PW_RECORD_PID" 2>/dev/null || true
     fi
     echo "Done. WAV file: $OUTPUT"
@@ -124,15 +136,19 @@ PW_RECORD_PID=$!
 # ── wait for recorder ports to appear ────────────────────────────────────────
 
 echo "Waiting for recorder ports to appear..."
-for i in $(seq 1 20); do
+attempt=0
+while [ "$attempt" -lt "$POLL_ATTEMPTS" ]; do
     if pw-link -i 2>/dev/null | grep -q "^${NODE_NAME}:"; then
         break
     fi
     sleep 0.25
-    if [ "$i" -eq 20 ]; then
-        die "Timed out waiting for recorder ports (node: $NODE_NAME). Is PipeWire running?"
-    fi
+    attempt=$(( attempt + 1 ))
 done
+if ! pw-link -i 2>/dev/null | grep -q "^${NODE_NAME}:"; then
+    timeout_s=$(( POLL_ATTEMPTS / 4 ))
+    die "Timed out after ${timeout_s}s waiting for recorder ports (node: $NODE_NAME). Is PipeWire running?"
+fi
+unset attempt
 
 # ── create links ──────────────────────────────────────────────────────────────
 
